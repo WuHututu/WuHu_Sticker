@@ -11,9 +11,12 @@ Sticker is a small Windows 11 helper that stays in the tray and opens a lightwei
 - Default open hotkey: `Ctrl + Shift + Shift`
 - Chinese and English UI switching in Settings
 - Regular single-tap hotkeys such as `Ctrl + A`, `Ctrl + F2`, `Alt + Space`, `Ctrl + Tab`, and arrow/navigation keys are supported
+- Paste images from the clipboard or copied image files, and copy image content back out
+- Toolbar button for toggling always-on-top
+- Startup prompt shown above the taskbar after launch
 - Run at login
-- Copy all text with one click
-- Copy selected text with one click
+- Copy all content with one click
+- Copy selected content with one click
 
 ## Notes
 
