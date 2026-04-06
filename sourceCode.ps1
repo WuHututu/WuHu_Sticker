@@ -1,11 +1,11 @@
-﻿##[Ps1 To Exe]
+##[Ps1 To Exe]
 ##
 ##Kd3HDZOFADWE8uO1
 ##Nc3NCtDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kUp8IUQQ4WGOcj94HEEuSiQLBEm+BwCw==
 ##Kd3HFJGZHWLWoLaVvnQnhQ==
 ##LM/RF4eFHHGZ7/K1
 ##K8rLFtDXTiW5
-##OsHQCZGeTiiZ49I=
+##OsHQCZGeTiiZ4dI=
 ##OcrLFtDXTia5
 ##LM/BD5WYTiiZ4tI=
 ##McvWDJ+OTiiZ4tI=
@@ -26,7 +26,7 @@
 ##LNzLEpGeC3fMu77Ro2k3hQ==
 ##L97HB5mLAnfMu77Ro2k3hQ==
 ##P8HPCZWEGmaZ7/K1
-##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P7luC7cW9dCHRpyjiyc
+##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kiofkEai4+JvEA56CeHv+sJQ==
 ##Kc/BRM3KXhU=
 ##
 ##
@@ -68,6 +68,44 @@ public static class StickerIconNative
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyIcon(IntPtr hIcon);
+}
+"@
+}
+
+if (-not ('StickerWindowNative' -as [type])) {
+    Add-Type -Language CSharp -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class StickerWindowNative
+{
+    public const int SW_SHOW = 5;
+    public const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 }
 "@
 }
@@ -3199,7 +3237,46 @@ function Focus-EditorWindow {
     if ($script:State.MainWindow.WindowState -eq [System.Windows.WindowState]::Minimized) {
         $script:State.MainWindow.WindowState = [System.Windows.WindowState]::Normal
     }
+    $helper = New-Object System.Windows.Interop.WindowInteropHelper($script:State.MainWindow)
+    $handle = $helper.Handle
+    if ($handle -eq [System.IntPtr]::Zero) {
+        try {
+            $handle = $helper.EnsureHandle()
+        }
+        catch {
+            $handle = [System.IntPtr]::Zero
+        }
+    }
+
     $script:State.MainWindow.Activate() | Out-Null
+    if ($handle -ne [System.IntPtr]::Zero) {
+        [StickerWindowNative]::ShowWindowAsync($handle, [StickerWindowNative]::SW_SHOW) | Out-Null
+        [StickerWindowNative]::ShowWindowAsync($handle, [StickerWindowNative]::SW_RESTORE) | Out-Null
+        [StickerWindowNative]::BringWindowToTop($handle) | Out-Null
+
+        $foregroundWindow = [StickerWindowNative]::GetForegroundWindow()
+        if ($foregroundWindow -ne [System.IntPtr]::Zero -and $foregroundWindow -ne $handle) {
+            [uint32]$foregroundProcessId = 0
+            $foregroundThreadId = [StickerWindowNative]::GetWindowThreadProcessId($foregroundWindow, [ref]$foregroundProcessId)
+            [uint32]$currentThreadId = [StickerWindowNative]::GetCurrentThreadId()
+            if ($foregroundThreadId -ne 0 -and $foregroundThreadId -ne $currentThreadId) {
+                $attached = $false
+                try {
+                    $attached = [StickerWindowNative]::AttachThreadInput($currentThreadId, $foregroundThreadId, $true)
+                    [StickerWindowNative]::BringWindowToTop($handle) | Out-Null
+                    [StickerWindowNative]::SetForegroundWindow($handle) | Out-Null
+                }
+                finally {
+                    if ($attached) {
+                        [StickerWindowNative]::AttachThreadInput($currentThreadId, $foregroundThreadId, $false) | Out-Null
+                    }
+                }
+            }
+        }
+
+        [StickerWindowNative]::SetForegroundWindow($handle) | Out-Null
+    }
+
     if ([bool]$script:State.Settings.AlwaysOnTop) {
         $script:State.MainWindow.Topmost = $true
     }
@@ -3207,8 +3284,14 @@ function Focus-EditorWindow {
         $script:State.MainWindow.Topmost = $true
         $script:State.MainWindow.Topmost = $false
     }
+    $script:State.MainWindow.Focus() | Out-Null
     $script:State.EditorRichTextBox.Focus() | Out-Null
+    [System.Windows.Input.Keyboard]::Focus($script:State.EditorRichTextBox) | Out-Null
     $script:State.EditorRichTextBox.CaretPosition = $script:State.EditorRichTextBox.Document.ContentEnd
+    $script:State.EditorRichTextBox.Selection.Select(
+        $script:State.EditorRichTextBox.CaretPosition,
+        $script:State.EditorRichTextBox.CaretPosition
+    )
     $script:State.EditorRichTextBox.ScrollToEnd()
 }
 
