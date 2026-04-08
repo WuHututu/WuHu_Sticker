@@ -26,7 +26,7 @@
 ##LNzLEpGeC3fMu77Ro2k3hQ==
 ##L97HB5mLAnfMu77Ro2k3hQ==
 ##P8HPCZWEGmaZ7/K1
-##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kiofkEai4+JvEA56CeHv+sJQ==
+##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kiofkEai4+JvEA56CBVeKxQMI=
 ##Kc/BRM3KXhU=
 ##
 ##
@@ -1926,6 +1926,44 @@ function Get-EditorLineHeight {
     return [Math]::Ceiling([Math]::Max($formattedText.Height, ($script:State.EditorRichTextBox.FontSize * 1.15)))
 }
 
+function Get-EditorVisibleLineCount {
+    if ($null -eq $script:State.EditorRichTextBox -or $null -eq $script:State.EditorRichTextBox.Document) {
+        return 1
+    }
+
+    Ensure-EditorDocumentHasParagraph
+    $script:State.EditorRichTextBox.UpdateLayout()
+    $lines = @(Get-EditorTextLines)
+    if ($lines.Count -eq 0) {
+        return 1
+    }
+
+    $availableWidth = [double]$script:State.EditorRichTextBox.ViewportWidth
+    if ([double]::IsNaN($availableWidth) -or [double]::IsInfinity($availableWidth) -or $availableWidth -le 1) {
+        $availableWidth = [double]$script:State.EditorRichTextBox.ActualWidth
+    }
+
+    if ([double]::IsNaN($availableWidth) -or [double]::IsInfinity($availableWidth) -or $availableWidth -le 1) {
+        return [Math]::Max($lines.Count, 1)
+    }
+
+    $availableWidth = [Math]::Max([Math]::Floor($availableWidth - 6), 1)
+    $visibleLineCount = 0
+    foreach ($line in $lines) {
+        $lineWidth = [double](Measure-EditorTextWidth $line)
+        $wrappedLineCount = if ($lineWidth -le 0) {
+            1
+        }
+        else {
+            [Math]::Ceiling(($lineWidth + 1) / $availableWidth)
+        }
+
+        $visibleLineCount += [Math]::Max([int]$wrappedLineCount, 1)
+    }
+
+    return [Math]::Max($visibleLineCount, 1)
+}
+
 function Get-MainWindowChromeSize {
     $fallback = @{
         Width = 72
@@ -2078,7 +2116,8 @@ function Resize-MainWindowToContent {
 
         if ($FitHeight) {
             $lineHeight = Get-EditorLineHeight
-            $targetHeight = $chrome.Height + (($lines.Count + 1) * $lineHeight) + 2
+            $visibleLineCount = Get-EditorVisibleLineCount
+            $targetHeight = $chrome.Height + (($visibleLineCount + 1) * $lineHeight) + 2
         }
 
         $targetWidth = [Math]::Max($targetWidth, $script:State.MainWindow.MinWidth)
