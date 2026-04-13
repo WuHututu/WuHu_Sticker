@@ -26,7 +26,7 @@
 ##LNzLEpGeC3fMu77Ro2k3hQ==
 ##L97HB5mLAnfMu77Ro2k3hQ==
 ##P8HPCZWEGmaZ7/K1
-##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kiofkEai4+JvEA56CBVeKxQMI=
+##L8/UAdDXTlaDjofG5iZk2RK+Gzp/UuGeqr2zy5GA7P/usSDaXYkoSltzkzHAF1+0WvkXR8kiofkEai4+JvEA56CeHv+sJQ==
 ##Kc/BRM3KXhU=
 ##
 ##
@@ -147,7 +147,7 @@ $script:SettingsPath = Join-Path $script:SettingsDirectory 'settings.json'
 $script:CurrentNotePath = Join-Path $script:SettingsDirectory 'current-note.xamlpackage'
 $script:SavedNotesDirectory = Join-Path $script:SettingsDirectory 'saved-notes'
 $script:SavedNotesIndexPath = Join-Path $script:SettingsDirectory 'saved-notes.json'
-$script:LauncherPath = Join-Path $script:AppRoot 'WuHuStickerLauncher.vbs'
+$script:LauncherPath = Join-Path $script:AppRoot 'SourceCodeLauncher.vbs'
 $script:AppIconPath = Join-Path $script:AppRoot 'assets\WuHuSticker.ico'
 $script:ButtonIconDirectory = Join-Path $script:AppRoot 'assets\button-icons'
 $script:StartupRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -1212,8 +1212,40 @@ function Get-RegistryStartupCommand {
         return ('"{0}"' -f $script:ProcessPath)
     }
 
-    $wscriptPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-    return ('"{0}" "{1}"' -f $wscriptPath, $script:LauncherPath)
+    $powershellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    return ('"{0}" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{1}"' -f $powershellPath, $script:ScriptPath)
+}
+
+function Get-RegisteredStartupCommand {
+    $key = $null
+    try {
+        $key = Open-StartupRegistryKey
+        if ($null -eq $key) {
+            return $null
+        }
+
+        foreach ($name in (Get-AllStartupRegistryNames)) {
+            $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if ($null -eq $value) {
+                continue
+            }
+
+            $command = [string]$value
+            if (-not [string]::IsNullOrWhiteSpace($command)) {
+                return $command
+            }
+        }
+
+        return $null
+    }
+    catch {
+        return $null
+    }
+    finally {
+        if ($null -ne $key) {
+            $key.Dispose()
+        }
+    }
 }
 
 function Get-AllStartupRegistryNames {
@@ -1234,35 +1266,7 @@ function Open-StartupRegistryKey {
 }
 
 function Test-StartWithWindows {
-    $key = $null
-    try {
-        $key = Open-StartupRegistryKey
-        if ($null -eq $key) {
-            return $false
-        }
-
-        $currentCommand = Get-RegistryStartupCommand
-        foreach ($name in (Get-AllStartupRegistryNames)) {
-            $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-            if ($null -eq $value) {
-                continue
-            }
-
-            if ([string]::Equals(([string]$value), $currentCommand, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $true
-            }
-        }
-
-        return $false
-    }
-    catch {
-        return $false
-    }
-    finally {
-        if ($null -ne $key) {
-            $key.Dispose()
-        }
-    }
+    return -not [string]::IsNullOrWhiteSpace((Get-RegisteredStartupCommand))
 }
 
 function Set-StartupState {
@@ -1677,11 +1681,12 @@ function Load-Settings {
             }
         }
 
+        $registryStartupEnabled = Test-StartWithWindows
         if ($null -ne $raw.StartWithWindows) {
-            $settings.StartWithWindows = [bool]$raw.StartWithWindows
+            $settings.StartWithWindows = ([bool]$raw.StartWithWindows -or $registryStartupEnabled)
         }
         else {
-            $settings.StartWithWindows = Test-StartWithWindows
+            $settings.StartWithWindows = $registryStartupEnabled
         }
         return $settings
     }
